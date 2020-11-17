@@ -1,0 +1,238 @@
+---
+title: "AAsoildataAnalysis"
+author: "conleym"
+date: "11/15/2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+```
+
+```{r}
+
+AA <- read.csv("~/Chem313Lab01MOC/Lab4Soil/tidy_AA.csv")
+mutate(percent_rsd = as.numeric(percent_rsd)*100)
+```
+
+1) Start by defining useful lists; such as what sites, metals, and sample IDs were analyzed.
+
+```{r}
+sample_sites_AA <- unique(filter(AA, site!="MB", site!="")$site)
+#excluding method blank and quality control from the list of sites
+#Preview the lists to check for potential issues:
+sample_sites_AA
+
+```
+
+2) Calibrating the AA Data 
+
+```{r Calibration}
+cal <- AA %>%
+  filter(type != "Sample", percent_rsd != "HIGH") %>%
+  select(mean_abs, percent_rsd, concentration)
+#weighted linear regression
+w <- 1/(cal$mean_abs*cal$percent_rsd)^2
+model <- lm(cal$mean_abs ~ cal$concentration, weights = w)
+slope <- model$coefficients[2]
+intercept <- model$coefficients[1]
+slope_std <- summary(model)$coefficients[2,2]
+intercept_std <- summary(model)$coefficients[1,2]
+plot(cal$mean_abs ~ cal$concentration,
+       xlab = paste("[ ] of Chromium (ppm)"),
+       ylab = "Mean Abs") +
+    abline(model, col = "green") +
+    title(paste("Calibration for Chromium"))
+equation <- tibble(metal = "Chromium", slope, slope_std, intercept, intercept_std)
+cal <- rbind(equation)
+cal
+  
+AA_cal
+#Clearing the environment (optional, but helps to prevent accidentally using the wrong object!)
+remove(equation, cal, slope, slope_std, intercept, intercept_std, w, model)
+```
+
+3) Creating a function to analyze samples
+```{r}
+#inputs: unique_site (as a character, ex. "A")
+#outputs: concentration vector 
+sample_analysis2 <- function(unique_site){
+  #unique_site <- "A"
+  concentration_data <- NULL
+  for (unique_site in sample_sites_AA){
+    sample <- filter(AA, site = unique_site)
+    data <- NULL 
+    
+    for(ID in sample$sample_key){ 
+      sample_data <- filter(sample, sample_key == ID)
+      cal <- filter(AA_cal, site == unique_site) 
+  
+      #Sample Analysis 
+      m <- cal$slope 
+      b <- cal$intercept 
+      y <- sample_data$cps
+  
+      b_e<- cal$intercept_std
+      m_e <- cal$slope_std
+  
+      x <- (y-b)/m #The units are dependent on the calibration standards (Kg/mL)
+      
+      RSD <- sample_data$rsd
+      CPS <- sample_data$cps
+  
+      #Error Propagation
+      e_yb <- sqrt((RSD)^2 + (b_e)^2) 
+      #error in y-b from the calibration
+      yb <- CPS-b
+      e_x <- x*sqrt((e_yb/yb)^2+(m_e/m)^2)
+      #error in x from the calibration
+      
+      data <- rbind(data, data_frame(sample_key = ID, x, e_x)) 
+      if (unique_site != "MB"){
+        concentration_data <- data_frame(sample_key = sample_data$sample_key,
+                                         analyst = sample_data$analyst,
+                                         metal = unique_metal,
+                                         site = unique_site,
+                                         conc_dil = x, 
+                                         conc_dil_error = e_x)%>%
+                              rbind(concentration_data)
+      }
+    }
+    if (unique_site=="MB"){
+      x <- mean(data$x)
+      e_x <- sd(data$x)
+      concentration_data <- data_frame(metal = unique_metal,
+                                     site = unique_site, 
+                                     conc_dil = x,
+                                     conc_dil_error = e_x) %>%
+                            rbind(concentration_data)
+    }
+  }
+  return(concentration_data)
+}
+```
+
+4) Creating a run_sites function
+```{r}
+#inputs: a function
+#outputs: a data frame with the function outputs from each site
+run_sites <- function(Function){
+  value <- NULL
+  for(sites in sample_sites){
+    site_value <- Function(sites)
+    value <- rbind(site_value, value)
+  }
+  return(value)
+}
+```
+
+```{r}
+MB2 <- sample_analysis2("MB") #(ug/kg)
+uncor_sample2 <- run_sites(sample_analysis2) #values do not account for dilutions (ug/kg)
+MB2
+uncor_sample
+```
+
+```{r}
+MB_metal <- MB2$conc_dil
+
+  conc_dil_blanked <- uncor_sample2$conc_dil-mean(MB_metal)
+  
+  #Error Propagation: subtraction of MB
+  conc_dil_blanked_error <- sqrt((uncor_sample2$conc_dil_error)^2 + (sd(MB_metal))^2)
+  
+  sample_data_mb2 <- uncor_sample2 %>% 
+    mutate(conc_dil_blanked, conc_dil_blanked_error)%>%
+
+sample_data_mb2
+```
+
+#Sample Prep Procedure
+
+1) mass_soil (example: 1.50621) weighed on analytical balance (uncertainty = ±.001)
+*Note: because the analytical lab has two different types of balances, and the uncertainty was not recorded in the data collection we must assume that everyone used the less precise balance*
+
+2) mass_soil was dried in 55˚C oven for 1 week
+
+3) mass_soil was ground with mortar and pestle
+
+4) mass_soil was quantitatively transferred to acid washed teflon beaker (do steps 2-4 affect uncertainty?)
+
+5) mass_soil was digested with ~10 mL MQ water, 3 mL nitric acid, 2 mL hydrochloric acid and heated till steaming for 30 minutes.
+
+*Note: additional 3 mL nitric and 2 mL hydrochloric were added to prevent rxn from running dry*
+
+6) Acid digestion solution was quantitatively transferred to falcon tube and diluted to total_volume which was measured with fill line (example 45 mL) (uncertainty= 1 mL?)
+
+*How could you improve the precision at this step?*
+
+7) Falcon tube centrifuged for 10 minutes at 1500 rpm for 10 min.
+
+8) 10 mL of sample transferred to metals-free 15 mL tube and brought to OHSU for ICPMS analysis. 
+(stored in fridge prior to transport)
+
+
+
+```{r}
+#error propagation
+vol_e <- 1
+mass_e <- .001
+
+sample_data_AA <- merge(AA,sample_data_mb2)%>% #This adds in important details such as soil mass
+  unique()%>%
+  mutate(conc_blanked = conc_dil_blanked*(total_volume/1000)/(mass_of_soil/1000),
+           conc_blanked_error = conc_blanked* 
+           sqrt((conc_dil_blanked_error/conc_dil_blanked)^2+
+                  (mass_e/mass_of_soil)^2+ 
+                  (vol_e/total_volume)^2),
+         conc_unblanked = conc_dil*(total_volume/1000)/(mass_of_soil/1000),
+         conc_unblanked_error = conc_unblanked* 
+           sqrt((conc_dil_error/conc_dil)^2+
+                  (mass_e/mass_of_soil)^2+ 
+                  (vol_e/total_volume)^2))%>%
+  select(-concentration, #removing unecesssary columns
+         -type, 
+         -mass_of_soil,
+         -total_volume,
+         -x.rsd,
+         -conc_dil_blanked, 
+         -conc_dil_blanked_error, 
+         -conc_dil,
+         -conc_dil_error)
+sample_data_AA
+```
+
+```{r}
+#group_by(site)
+#mean
+#95CI
+```
+
+```{r, warning= FALSE}
+rm(list= ls() [!(ls() %in% c("sampl_date", "sample_data_AA"))])
+
+```
+
+#See file 3 for the ICPMS results (statistical analysis and visualization) example code!
+
+
+Changing code in R & Github (the change you actually want)
+  
+```
+2.Calculate the average [Pb], [Cr], [Cd], and [As] as measured by ICP-MS from all of the class
+data for each soil sample. Be sure to subtract the method blank. Calculate the 95% CI of the
+range of concentrations for each metal ( ̅x ± ts /√n).
+3. Calculate the average [Pb], [Cr], [Cd], and [As] measured in the class average of method
+blank and Buffalo River standard soil quality control check samples. Compare the
+concentrations observed in the QC soil sample to reported concentrations (data sheet on the
+QC soil is on the moodle).
+4. Calculate the average [Cr] as measured by AA from all of the class data for each soil site (A,
+B, C, D, E, and F). Be sure to subtract the method blank. Calculate the 95% CI of the range
+of concentrations for each metal ( ̅x ± ts /√n).
+5. Do the [Cr] measured by AA and ICP-MS agree, within error? To assess this, propagate error
+from the uncertainties in each instrument’s calibration curve slope and intercept to obtain a
+mean estimate and error.
+6. Calculated the average measured concentrations of all metals in each soil sample, in mg / kg
+dry soil. This will require accounting for all dilutions and the initial mass of soil digested.
+Show your calculation for one of the metals. 
+
+```{r }
