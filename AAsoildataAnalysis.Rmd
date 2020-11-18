@@ -6,119 +6,124 @@ output: html_document
 ---
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(readr)
 ```
 
 ```{r}
 
-AA <- read.csv("~/Chem313Lab01MOC/Lab4Soil/tidy_AA.csv")
+AA <- read.csv("~/Chem313Lab01MOC/Lab4Soil/tidy_AA.csv")%>%
 mutate(percent_rsd = as.numeric(percent_rsd)*100)
+#sample_key <- read.csv("~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/Sample_Key.csv", skip=0)
+
 ```
 
 1) Start by defining useful lists; such as what sites, metals, and sample IDs were analyzed.
 
 ```{r}
-sample_sites_AA <- unique(filter(AA, site!="MB", site!="")$site)
+sample_sites <- unique(filter(AA, site != "MB", site != "")$site)
 #excluding method blank and quality control from the list of sites
-#Preview the lists to check for potential issues:
-sample_sites_AA
+
 
 ```
 
 2) Calibrating the AA Data 
 
 ```{r Calibration}
-cal <- AA %>%
-  filter(type != "Sample", percent_rsd != "HIGH") %>%
-  select(mean_abs, percent_rsd, concentration)
+#cal_aa <- NULL
+#selecting cal standards
+cal <- AA %>% 
+  filter(type == "CalStd"| type =="CalStd2"| type ==  "CalStd4")%>%
+  select(concentration, mean_abs, percent_rsd)
+
 #weighted linear regression
 w <- 1/(cal$mean_abs*cal$percent_rsd)^2
 model <- lm(cal$mean_abs ~ cal$concentration, weights = w)
+
 slope <- model$coefficients[2]
 intercept <- model$coefficients[1]
 slope_std <- summary(model)$coefficients[2,2]
 intercept_std <- summary(model)$coefficients[1,2]
+
 plot(cal$mean_abs ~ cal$concentration,
-       xlab = paste("[ ] of Chromium (ppm)"),
+       xlab = paste("Concentration of Chromium (ppm)"),
        ylab = "Mean Abs") +
     abline(model, col = "green") +
     title(paste("Calibration for Chromium"))
-equation <- tibble(metal = "Chromium", slope, slope_std, intercept, intercept_std)
-cal <- rbind(equation)
-cal
+
+#i think the code below is where things are going wrong
+equation <- tibble(metal = "Cr53", slope, slope_std, intercept, intercept_std)
+cal_aa <- rbind(equation)
+cal_aa
+
   
-AA_cal
 #Clearing the environment (optional, but helps to prevent accidentally using the wrong object!)
-remove(equation, cal, slope, slope_std, intercept, intercept_std, w, model)
+#remove(equation, cal, slope, slope_std, intercept, intercept_std, w, model)
 ```
 
 3) Creating a function to analyze samples
 ```{r}
-#inputs: unique_site (as a character, ex. "A")
-#outputs: concentration vector 
-sample_analysis2 <- function(unique_site){
-  #unique_site <- "A"
-  concentration_data <- NULL
-  for (unique_site in sample_sites_AA){
-    sample <- filter(AA, site = unique_site)
-    data <- NULL 
-    
-    for(ID in sample$sample_key){ 
-      sample_data <- filter(sample, sample_key == ID)
-      cal <- filter(AA_cal, site == unique_site) 
-  
-      #Sample Analysis 
-      m <- cal$slope 
-      b <- cal$intercept 
-      y <- sample_data$cps
-  
-      b_e<- cal$intercept_std
-      m_e <- cal$slope_std
-  
-      x <- (y-b)/m #The units are dependent on the calibration standards (Kg/mL)
+sample_analysis <- function(unique_site){
+concentration_data <- NULL
+#for (unique_sitel in sites_analyzed){
+  sample <- filter(AA, site == unique_site)
+  data <- NULL
+  for(ID in sample$sample_key){
+    sample_data <- filter(sample, sample_key == ID)
+
+    #cal <- cal_aa
       
-      RSD <- sample_data$rsd
-      CPS <- sample_data$cps
-  
-      #Error Propagation
-      e_yb <- sqrt((RSD)^2 + (b_e)^2) 
-      #error in y-b from the calibration
-      yb <- CPS-b
-      e_x <- x*sqrt((e_yb/yb)^2+(m_e/m)^2)
-      #error in x from the calibration
+    m <- cal$slope
+    b <- cal$intercept
+    y <- sample_data$mean_abs
       
-      data <- rbind(data, data_frame(sample_key = ID, x, e_x)) 
-      if (unique_site != "MB"){
-        concentration_data <- data_frame(sample_key = sample_data$sample_key,
-                                         analyst = sample_data$analyst,
-                                         metal = unique_metal,
-                                         site = unique_site,
-                                         conc_dil = x, 
-                                         conc_dil_error = e_x)%>%
-                              rbind(concentration_data)
+    b_e <- cal$intercept_std
+    m_e <- cal$slope_std
+      
+    x <- (y-b)/m
+   
+    RSD <- ((sample_data$percent_rsd/100)*sample_data$mean_abs)
+    ABS <- sample_data$mean_abs
+      
+    e_yb <- sqrt((RSD)^2 + (b_e)^2)
+    yb <- ABS-b
+    e_x <- x*sqrt((e_yb/yb)^2 + (m_e/m)^2)
+      
+    data <- rbind(data, data_frame(sample_key = ID, x, e_x))
+      
+    if(unique_site != "MB"){
+      concentration_data <- data_frame(sample_key = sample_data$sample_key,
+                                       analyst = sample_data$analyst,
+                                       site = unique_site,
+                                       conc_dil = x,
+                                       conc_dil_error = e_x) %>%
+        rbind(concentration_data)
       }
-    }
-    if (unique_site=="MB"){
+  #}
+  
+  if(unique_site == "MB"){
       x <- mean(data$x)
       e_x <- sd(data$x)
-      concentration_data <- data_frame(metal = unique_metal,
-                                     site = unique_site, 
-                                     conc_dil = x,
-                                     conc_dil_error = e_x) %>%
-                            rbind(concentration_data)
-    }
+      concentration_data <- data_frame(site = unique_site,
+                                       conc_dil = x,
+                                       conc_dil_error = e_x) %>%
+        rbind(concentration_data)
+       }
   }
+  
   return(concentration_data)
 }
+
 ```
 
 4) Creating a run_sites function
+
 ```{r}
 #inputs: a function
 #outputs: a data frame with the function outputs from each site
 run_sites <- function(Function){
   value <- NULL
-  for(sites in sample_sites){
-    site_value <- Function(sites)
+  for(site in sample_sites){
+    site_value <- Function(site)
     value <- rbind(site_value, value)
   }
   return(value)
@@ -126,24 +131,26 @@ run_sites <- function(Function){
 ```
 
 ```{r}
-MB2 <- sample_analysis2("MB") #(ug/kg)
-uncor_sample2 <- run_sites(sample_analysis2) #values do not account for dilutions (ug/kg)
-MB2
+MB <- sample_analysis("MB")
+uncor_sample <- run_sites(sample_analysis)
+
+MB
 uncor_sample
 ```
 
 ```{r}
-MB_metal <- MB2$conc_dil
+sample_data_mb <- NULL
 
-  conc_dil_blanked <- uncor_sample2$conc_dil-mean(MB_metal)
+  conc_dil_blanked <- uncor_sample$conc_dil-MB$conc_dil
   
   #Error Propagation: subtraction of MB
-  conc_dil_blanked_error <- sqrt((uncor_sample2$conc_dil_error)^2 + (sd(MB_metal))^2)
+  conc_dil_blanked_error <- sqrt((uncor_sample$conc_dil_error)^2 + (MB$conc_dil_error))^2
   
-  sample_data_mb2 <- uncor_sample2 %>% 
+  sample_data_mb <- uncor_sample %>% 
     mutate(conc_dil_blanked, conc_dil_blanked_error)%>%
+    rbind(sample_data_mb)
 
-sample_data_mb2
+sample_data_mb
 ```
 
 #Sample Prep Procedure
@@ -175,40 +182,33 @@ sample_data_mb2
 ```{r}
 #error propagation
 vol_e <- 1
-mass_e <- .001
+mass_e <- 0.001
+dil_1010_e <- sqrt(1^2 + 10^2)
+dil_e <- sqrt((dil_1010_e/1010)^2 + (1/10)^2) ## error in 101 dilution factor
 
-sample_data_AA <- merge(AA,sample_data_mb2)%>% #This adds in important details such as soil mass
+
+sample_data <- merge(AA, sample_data_mb) %>%
   unique()%>%
-  mutate(conc_blanked = conc_dil_blanked*(total_volume/1000)/(mass_of_soil/1000),
-           conc_blanked_error = conc_blanked* 
+  mutate(conc_blanked = conc_dil_blanked * (total_volume/1000)/(mass_of_soil/1000),
+         conc_blanked_error = conc_blanked*
            sqrt((conc_dil_blanked_error/conc_dil_blanked)^2+
-                  (mass_e/mass_of_soil)^2+ 
+                  (dil_e/101)^2 +
+                  (mass_e/mass_of_soil)^2 +
                   (vol_e/total_volume)^2),
          conc_unblanked = conc_dil*(total_volume/1000)/(mass_of_soil/1000),
-         conc_unblanked_error = conc_unblanked* 
+         conc_unblanked_error = conc_unblanked*
            sqrt((conc_dil_error/conc_dil)^2+
-                  (mass_e/mass_of_soil)^2+ 
-                  (vol_e/total_volume)^2))%>%
-  select(-concentration, #removing unecesssary columns
-         -type, 
-         -mass_of_soil,
-         -total_volume,
-         -x.rsd,
-         -conc_dil_blanked, 
-         -conc_dil_blanked_error, 
-         -conc_dil,
-         -conc_dil_error)
-sample_data_AA
+                  (dil_e/101)^2 +
+                  (mass_e/mass_of_soil)^2 +
+                  (vol_e/total_volume)^2)) %>%
+  select(!c(concentration, type, mass_of_soil, total_volume, mean_abs, percent_rsd, conc_dil_blanked, conc_dil_blanked_error, conc_dil, conc_dil_error))
+
+sample_data
 ```
 
-```{r}
-#group_by(site)
-#mean
-#95CI
-```
 
 ```{r, warning= FALSE}
-rm(list= ls() [!(ls() %in% c("sampl_date", "sample_data_AA"))])
+rm(list=ls()[!(ls()%in% c("AA", "sample_data"))])
 
 ```
 
@@ -218,21 +218,7 @@ rm(list= ls() [!(ls() %in% c("sampl_date", "sample_data_AA"))])
 Changing code in R & Github (the change you actually want)
   
 ```
-2.Calculate the average [Pb], [Cr], [Cd], and [As] as measured by ICP-MS from all of the class
-data for each soil sample. Be sure to subtract the method blank. Calculate the 95% CI of the
-range of concentrations for each metal ( ̅x ± ts /√n).
-3. Calculate the average [Pb], [Cr], [Cd], and [As] measured in the class average of method
-blank and Buffalo River standard soil quality control check samples. Compare the
-concentrations observed in the QC soil sample to reported concentrations (data sheet on the
-QC soil is on the moodle).
-4. Calculate the average [Cr] as measured by AA from all of the class data for each soil site (A,
-B, C, D, E, and F). Be sure to subtract the method blank. Calculate the 95% CI of the range
-of concentrations for each metal ( ̅x ± ts /√n).
-5. Do the [Cr] measured by AA and ICP-MS agree, within error? To assess this, propagate error
-from the uncertainties in each instrument’s calibration curve slope and intercept to obtain a
-mean estimate and error.
-6. Calculated the average measured concentrations of all metals in each soil sample, in mg / kg
-dry soil. This will require accounting for all dilutions and the initial mass of soil digested.
-Show your calculation for one of the metals. 
 
 ```{r }
+warnings()
+```
