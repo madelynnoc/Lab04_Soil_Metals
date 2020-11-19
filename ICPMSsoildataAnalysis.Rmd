@@ -213,15 +213,16 @@ ICPMS_sample_data <- merge(ICPMS,sample_data_mb)%>% #This adds in important deta
          -conc_dil,
          -conc_dil_error)
 ICPMS_sample_data
+
+write.csv(ICPMS_sample_data, file="~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/ICPMS_sample_data.csv")
 ```
 #What other errors could potentially contribute to the true uncertainty in the final concentrations? 
 #Would you expect any of them to be large enough to impact the uncertainty? 
 
 ```{r, warning= FALSE}
-rm(list= ls()[!(ls() %in% c("ICPMS","ICPMS_sample_data", "sample_sites","metals_analyzed" ))])
+#rm(list= ls()[!(ls() %in% c("ICPMS","ICPMS_sample_data", "sample_sites","metals_analyzed" ))])
+
 ```
 
-#See file 3 for the ICPMS results (statistical analysis and visualization) example code!
-
-#Now to look at AA data!
+#Now to look at stats!
 

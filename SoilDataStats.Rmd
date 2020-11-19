@@ -1,0 +1,327 @@
+---
+title: "SoilDataStats.Rmd"
+author: "conleym"
+date: "11/15/2020"
+output: html_document
+---
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(ggplot2)
+```
+
+#Stats
+
+1) View Data
+```
+
+```{r}
+
+sample_data_ICPMS <- read.csv("~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/ICPMS_sample_data.csv")
+sample_data_ICPMS
+
+sample_data_AA <- read.csv("~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/AA_sample_data.csv")
+sample_data_AA
+
+```
+
+2) Average data for each site
+2.Calculate the average [Pb], [Cr], [Cd], and [As] as measured by ICP-MS from all of the class data for each soil sample. Be sure to subtract the method blank. Calculate the 95% CI of the
+range of concentrations for each metal ( ̅x ± ts /√n)
+
+```{r}
+
+#simplifying metals
+minimal_stats_ICPMS <- sample_data_ICPMS %>%
+  mutate(metal_short = case_when(
+    metal == "As75" ~ "As",
+    metal == "Cd111" ~ "Cd",
+    metal == "Cd114" ~ "Cd",
+    metal == "Cr52" ~ "Cr",
+    metal == "Cr53" ~ "Cr",
+    metal == "Pb208" ~ "Pb"))
+    
+#avg of each metal
+AVG_concMETAL_ICPMS <- minimal_stats_ICPMS%>%
+  filter(site!= "QC")%>%
+  group_by(metal_short)%>%
+  summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+AVG_concMETAL_ICPMS <- AVG_concMETAL_ICPMS %>%
+  mutate(mean_conc = mean_conc/1000,
+         sd_conc = sd_conc/1000,
+         lower_ci = lower_ci/1000,
+         upper_ci = upper_ci/1000, 
+         CI = CI/1000 )
+
+#avg of metal per site
+
+AVG_concSITE_ICPMS <- minimal_stats_ICPMS%>%
+  group_by(metal_short,site)%>%
+  summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+AVG_concSITE_ICPMS <- AVG_concSITE_ICPMS %>%
+  mutate(mean_conc = mean_conc/1000,
+         sd_conc = sd_conc/1000,
+         lower_ci = lower_ci/1000,
+         upper_ci = upper_ci/1000, 
+         CI = CI/1000)
+
+```
+
+3. Calculate the average [Pb], [Cr], [Cd], and [As] measured in the class average of method blank and Buffalo River standard soil quality control check samples. Compare the concentrations observed in the QC soil sample to reported concentrations (data sheet on the
+QC soil is on the moodle). ##Check As
+
+```{r}
+#avg qc by site
+AVG_concQC_ICPMS <- minimal_stats_ICPMS%>%
+  filter(site== "QC")%>%
+  group_by(metal_short)%>%
+  summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+AVG_concQC_ICPMS <- AVG_concQC_ICPMS %>%
+  mutate(mean_conc = mean_conc/1000,
+         sd_conc = sd_conc/1000,
+         lower_ci = lower_ci/1000,
+         upper_ci = upper_ci/1000, 
+         CI = CI/1000)
+
+
+given_qc <- data.frame(
+  metal = c("Cd", "Cr", "Pb"),
+  mass_frac = c(2.94, 121.9, 150),
+  mass_frac_sd = c(0.29, 3.8, 17))
+
+stats_qc <- AVG_concQC_ICPMS %>%
+  mutate(mass_fraction = mean_conc,
+         mass_fraction_sd = sd_conc) 
+  
+
+joining_given <- given_qc %>%
+  rename(metal_short = metal,
+         mass_frac_given = mass_frac,
+         mass_frac_sd_given = mass_frac_sd) %>%
+  select(!mass_frac_sd_given)
+
+joining_ICPMS <- stats_qc %>%
+  rename(mass_frac_icpms = mass_fraction,
+         mass_frac_sd_icpms = mass_fraction_sd) %>%
+  select(c(mass_frac_icpms, metal_short))
+
+joined_qc <- full_join(joining_given, joining_ICPMS) %>%
+  drop_na() %>%
+  mutate(per_recovery = (mass_frac_icpms/mass_frac_given)*100)
+
+```
+
+4. Calculate the average [Cr] as measured by AA from all of the class data for each soil site (A, B, C, D, E, and F). Be sure to subtract the method blank. Calculate the 95% CI of the range of concentrations for each metal ( ̅x ± ts /√n).
+
+```{r}
+
+AVG_concSITE_AA <- sample_data_AA %>%
+  filter(site != "QC")%>%
+  group_by(site)%>%
+  summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+         
+#AVG_concQC_AA <- sample_data_AA%>%
+  #filter(site== "QC")%>%
+  #group_by(site)%>%
+  #summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    #mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         #lower_ci = mean_conc - CI,
+         #upper_ci = mean_conc + CI)
+         
+#AVG_concALL_AA <- sample_data_AA%>%
+  #filter(site!= "QC")%>%
+ # summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    #mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+      #   lower_ci = mean_conc - CI,
+       #  upper_ci = mean_conc + CI)
+
+```
+5. Do the [Cr] measured by AA and ICP-MS agree, within error? To assess this, propagate error from the uncertainties in each instrument’s calibration curve slope and intercept to obtain a mean estimate and error.
+
+```{r}
+AVG_concCrSITE_ICPMS <- minimal_stats_ICPMS%>%
+  filter(metal_short == "Cr")%>%
+  group_by(site)%>%
+  summarise(mean_conc = mean(conc_blanked), sd_conc = sd(conc_blanked), n = n()) %>%
+    mutate(CI = qnorm(0.975)*sd_conc/sqrt(n),
+         lower_ci = mean_conc - CI,
+         upper_ci = mean_conc + CI)
+
+AVG_concCrSITE_ICPMS <- AVG_concCrSITE_ICPMS %>%
+  mutate(mean_conc = mean_conc/1000,
+         sd_conc = sd_conc/1000,
+         lower_ci = lower_ci/1000,
+         upper_ci = upper_ci/1000, 
+         CI = CI/1000)
+
+print(AVG_concSITE_AA)
+print(AVG_concCrSITE_ICPMS)
+
+AVG_concCrSITE_ICPMS <- AVG_concCrSITE_ICPMS %>%
+  mutate(tool = "ICPMS")
+
+AVG_concSITE_AA <- AVG_concSITE_AA %>%
+  mutate(tool = "AA")
+
+#combining aa and icpms dataframes
+AVG_Crconc=full_join(AVG_concCrSITE_ICPMS, AVG_concSITE_AA,
+                   by=c("tool", 
+                        "mean_conc", 
+                        "sd_conc", 
+                        "n", "CI", "lower_ci", "upper_ci", "site"))
+
+write.csv(AVG_Crconc, "~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/AVG_Crconc.csv")
+```
+
+6. Calculate the average measured concentrations of all metals in each soil sample, in mg / kg dry soil. This will require accounting for all dilutions and the initial mass of soil digested.
+Show your calculation for one of the metals. 
+
+```{r}
+#avg data values for all metals combined
+AVG_concALL_ICPMS <- sample_data_ICPMS%>%
+  filter(site!= "QC")%>%
+  group_by(sample_key)%>%
+  summarise(mean_conc = mean(conc_blanked), 
+            sd_conc = sd(conc_blanked), 
+            n = n()) 
+
+AVG_concALL_ICPMS <- AVG_concALL_ICPMS %>%
+  mutate(mean_conc = mean_conc/1000,
+         sd_conc = sd_conc/1000)
+```
+3) Plot concentration data at each site
+#Beginning by making some example plots for each of the metals analyzed
+  `
+```{r}
+
+data_plot  <- minimal_stats_ICPMS %>%
+  group_by(metal_short) %>%
+  filter(site != "QC")
+
+  plot <-  ggplot(data = data_plot, aes(site, conc_blanked))+ 
+    geom_col(aes(fill = metal_short))+
+    labs( title=paste("Concentration of Measured Metals in Johnson Creek Watershed Sites"),
+          y= paste("Concentration of Metal (ppm)"), #double check unit!!
+          x="Site along Johnson Creek Watershed")+     
+    geom_errorbar(ymin= data_plot$conc_blanked - data_plot$conc_blanked_error,
+                  ymax= data_plot$conc_blanked + data_plot$conc_blanked_error)+
+    coord_cartesian()
+    
+ print(plot)
+ 
+
+#This graph looks really neat but is perhaps a bit suspicious in the case of Pb208?
+```
+
+#Now seperating out and making neat graphs for each metal
+
+```{r}
+#seperating out by metal
+conc_site_icpms<- sample_data_ICPMS %>%
+  filter(site != "QC")
+  group_by(site)
+
+AVG_concSITE_PB <- conc_site_icpms %>%
+  filter(metal == "Pb208")
+AVG_concSITE_AS <- conc_site_icpms %>%
+  filter(metal == "As75")
+AVG_concSITE_CD111 <- conc_site_icpms %>%
+  filter(metal == "Cd111")
+AVG_concSITE_CD114 <- conc_site_icpms %>%
+  filter(metal == "Cd114")
+AVG_concSITE_Cr52 <- conc_site_icpms %>%
+  filter(metal == "Cr52")
+AVG_concSITE_Cr53 <- conc_site_icpms %>%
+  filter(metal == "Cr53")
+
+
+#graphing for each metal
+ggplot(AVG_concSITE_CD114, aes(site, conc_blanked))+ 
+  geom_col(fill="#003300")+
+  labs(title="Concentration of Cd114 in Johnson Creek Watershed Sites",
+        y= "Concentration of Cd114 (ppm)", 
+        x="Site along Johnson Creek Watershed")+     
+  geom_errorbar(ymin= AVG_concSITE_CD114$conc_blanked - AVG_concSITE_CD114$conc_blanked_error,
+                max= AVG_concSITE_CD114$conc_blanked + AVG_concSITE_CD114$conc_blanked_error)+
+  coord_cartesian()
+
+
+
+
+```
+
+#Stats
+
+```{r}
+#Arielle found this function on stack exchange
+#https://stats.stackexchange.com/questions/30394/how-to-perform-two-sample-t-tests-in-r-by-inputting-sample-statistics-rather-tha
+# m1, m2: the sample means
+# s1, s2: the sample standard deviations
+# n1, n2: the same sizes
+# m0: the null value for the difference in means to be tested for. Default is 0. 
+# equal.variance: whether or not to assume equal variance. Default is FALSE. 
+t.test2 <- function(m1,m2,s1,s2,n1,n2,m0=0,equal.variance=FALSE)
+{
+    if( equal.variance==FALSE ) 
+    {
+        se <- sqrt( (s1^2/n1) + (s2^2/n2) )
+        # welch-satterthwaite df
+        df <- ( (s1^2/n1 + s2^2/n2)^2 )/( (s1^2/n1)^2/(n1-1) + (s2^2/n2)^2/(n2-1) )
+    } else
+    {
+        # pooled standard deviation, scaled by the sample sizes
+        se <- sqrt( (1/n1 + 1/n2) * ((n1-1)*s1^2 + (n2-1)*s2^2)/(n1+n2-2) ) 
+        df <- n1+n2-2
+    }      
+    t <- (m1-m2-m0)/se 
+    dat <- c(m1-m2, se, t, 2*pt(-abs(t),df))    
+    names(dat) <- c("Difference of means", "Std Error", "t", "p-value")
+    return(dat) 
+}
+
+#comaparing between metals
+t.test2(13.94541904, 3.244505905,2.63302005, 1.335144796,12, 22)
+t.test2(2.37870526,.131068641, .4267552319,.04039792594, 12, 22 )
+t.test2(2.555015649, .2303492002,.4827139834,.1166396999, 12, 22  )
+t.test2(57.83113336,21.00453376, 12.14064641, .4827139834, 12, 22 )
+t.test2(59.3150092,21.57528679, 11.58550655, 12.51689764,12, 22 )
+t.test2(269.5352927, 1191.817581,222.7627727,252.9577849, 22,12 )
+t.test2(1191.817581, 269.5352927,252.9577849,222.7627727, 12,22 )
+
+
+##Now lets compare the site c cr  to each other
+#cr52
+t.test2(3.400937e+01,	21.0045338, 1.694230e+01, 12.14064641, 5,22 )
+#Cr53
+t.test2(3.494743e+01,21.5752868, 1.743691e+01, 12.51689764, 5, 22)
+
+#Now for AA data
+t.test2(48.91812,23.05865445, 9.882947,7.41209171, 12, 4  )
+t.test2(48.91812,16.151985, 9.882947,5.164864565, 12, 5  )
+t.test2(48.91812,26.61849284, 9.882947,13.26031917, 12, 5  )
+t.test2(48.91812,9.840144961, 9.882947,4.102673005, 12, 3  )
+t.test2(48.91812,13.34216869, 9.882947,7.130288564, 12, 2  )
+t.test2(48.91812,6.94623958, 9.882947,5.13474049, 12, 3  )
+
+#f-test for the icpms vs the aa
+t.test2(48.91812,17.41502, 9.882947, 10.24718, 12, 22 )
+```

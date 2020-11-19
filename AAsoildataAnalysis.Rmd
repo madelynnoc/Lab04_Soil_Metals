@@ -63,21 +63,23 @@ cal_aa
 3) Creating a function to analyze samples
 ```{r}
 sample_analysis <- function(unique_site){
+ # unique_site <- "A"
 concentration_data <- NULL
 #for (unique_sitel in sites_analyzed){
   sample <- filter(AA, site == unique_site)
   data <- NULL
-  for(ID in sample$sample_key){
-    sample_data <- filter(sample, sample_key == ID)
+  for(number_aa in sample$sample_key){
+    #number_aa <- 46
+    sample_data <- filter(sample, sample_key == number_aa)
 
     #cal <- cal_aa
       
-    m <- cal$slope
-    b <- cal$intercept
+    m <- cal_aa$slope
+    b <- cal_aa$intercept
     y <- sample_data$mean_abs
       
-    b_e <- cal$intercept_std
-    m_e <- cal$slope_std
+    b_e <- cal_aa$intercept_std
+    m_e <- cal_aa$slope_std
       
     x <- (y-b)/m
    
@@ -86,9 +88,9 @@ concentration_data <- NULL
       
     e_yb <- sqrt((RSD)^2 + (b_e)^2)
     yb <- ABS-b
-    e_x <- x*sqrt((e_yb/yb)^2 + (m_e/m)^2)
+    e_x <- x*(RSD/100)
       
-    data <- rbind(data, data_frame(sample_key = ID, x, e_x))
+    data <- rbind(data, data_frame(sample_key = number_aa, x, e_x))
       
     if(unique_site != "MB"){
       concentration_data <- data_frame(sample_key = sample_data$sample_key,
@@ -136,6 +138,7 @@ uncor_sample <- run_sites(sample_analysis)
 
 MB
 uncor_sample
+
 ```
 
 ```{r}
@@ -187,7 +190,7 @@ dil_1010_e <- sqrt(1^2 + 10^2)
 dil_e <- sqrt((dil_1010_e/1010)^2 + (1/10)^2) ## error in 101 dilution factor
 
 
-sample_data <- merge(AA, sample_data_mb) %>%
+AA_sample_data <- merge(AA, sample_data_mb) %>%
   unique()%>%
   mutate(conc_blanked = conc_dil_blanked * (total_volume/1000)/(mass_of_soil/1000),
          conc_blanked_error = conc_blanked*
@@ -203,22 +206,22 @@ sample_data <- merge(AA, sample_data_mb) %>%
                   (vol_e/total_volume)^2)) %>%
   select(!c(concentration, type, mass_of_soil, total_volume, mean_abs, percent_rsd, conc_dil_blanked, conc_dil_blanked_error, conc_dil, conc_dil_error))
 
-sample_data
+AA_sample_data
+
+
+write.csv(AA_sample_data, file="~/Chem313Lab01MOC/Lab4Soil/~Chem313SoilMOC/AA_sample_data.csv")
 ```
 
 
 ```{r, warning= FALSE}
-rm(list=ls()[!(ls()%in% c("AA", "sample_data"))])
+
+
+#rm(list=ls()[!(ls()%in% c("AA", "AA_sample_data"))])
 
 ```
 
-#See file 3 for the ICPMS results (statistical analysis and visualization) example code!
+#Now to look at stats!
 
 
-Changing code in R & Github (the change you actually want)
-  
-```
 
-```{r }
-warnings()
-```
+
